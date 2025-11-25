@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Login - Attendance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='login.css') }}">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <h1>Student Login</h1>
+                <p>Login to view your attendance records</p>
+            </div>
+            
+            <form id="student-login-form">
+                <div class="form-group">
+                    <label for="usn">USN:</label>
+                    <input type="text" id="usn" name="usn" required placeholder="Enter your USN" style="text-transform: uppercase;" autocomplete="username">
+                </div>
+                
+                <div class="form-group">
+                    <label for="dob">Date of Birth (Password):</label>
+                    <input type="date" id="dob" name="dob" required autocomplete="current-password">
+                    <small style="display: block; margin-top: 5px; color: #666; font-size: 0.85em;">Enter your date of birth as password</small>
+                </div>
+                
+                <div id="login-message" class="message"></div>
+                
+                <button type="submit" class="login-btn">Login</button>
+            </form>
+            
+            <div class="login-footer">
+                <p>Not registered? <a href="/student/register" style="color: #333; text-decoration: none;">Register here</a></p>
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                    <p style="margin: 0 0 10px 0; color: #666; font-size: 0.9em;">Are you an admin?</p>
+                    <a href="/login" style="display: inline-block; padding: 10px 20px; background: #f0f0f0; color: #333; text-decoration: none; border-radius: 8px; font-size: 0.9em; transition: all 0.3s;">Admin Login</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('student-login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const usn = document.getElementById('usn').value.trim().toUpperCase();
+            const dob = document.getElementById('dob').value;
+            const messageDiv = document.getElementById('login-message');
+            
+            if (!usn || !dob) {
+                messageDiv.textContent = 'Please enter USN and Date of Birth';
+                messageDiv.className = 'message error';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/students/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        usn: usn,
+                        password: dob
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Store student session
+                    sessionStorage.setItem('student_usn', data.usn);
+                    sessionStorage.setItem('student_name', data.name);
+                    sessionStorage.setItem('student_id', data.id);
+                    
+                    messageDiv.textContent = 'Login successful! Redirecting...';
+                    messageDiv.className = 'message success';
+                    setTimeout(() => {
+                        window.location.href = '/student/dashboard';
+                    }, 500);
+                } else {
+                    messageDiv.textContent = data.error || 'Invalid credentials';
+                    messageDiv.className = 'message error';
+                }
+            } catch (error) {
+                messageDiv.textContent = 'Error connecting to server';
+                messageDiv.className = 'message error';
+                console.error('Error:', error);
+            }
+        });
+    </script>
+</body>
+</html>
+

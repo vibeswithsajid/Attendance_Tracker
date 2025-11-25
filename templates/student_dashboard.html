@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard - Attendance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .student-header {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .student-info h2 {
+            margin: 0;
+            color: #1a1a1a;
+            font-size: 1.5em;
+        }
+        .student-info p {
+            margin: 5px 0 0 0;
+            color: #666;
+        }
+        .logout-btn {
+            padding: 10px 20px;
+            background: #fff5f5;
+            border: 1px solid #ffcccc;
+            color: #cc0000;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .logout-btn:hover {
+            background: #ffe8e8;
+        }
+        .student-content {
+            padding: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .attendance-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        .attendance-card h3 {
+            margin: 0 0 15px 0;
+            color: #1a1a1a;
+            font-size: 1.2em;
+        }
+        .date-filter {
+            margin-bottom: 20px;
+        }
+        .date-filter input {
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #f8f8f8;
+            padding: 12px;
+            text-align: left;
+            border-bottom: 2px solid #e0e0e0;
+            color: #1a1a1a;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #333;
+        }
+        .late-badge {
+            background: #fff3cd;
+            color: #856404;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        .on-time-badge {
+            background: #d4edda;
+            color: #155724;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="student-header">
+            <div class="student-info">
+                <h2 id="student-name">Loading...</h2>
+                <p>USN: <span id="student-usn">-</span></p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <a href="/student/register" style="padding: 10px 20px; background: #f0f0f0; color: #333; text-decoration: none; border-radius: 8px; font-size: 0.9em;">Register New Student</a>
+                <a href="/login" style="padding: 10px 20px; background: #f0f0f0; color: #333; text-decoration: none; border-radius: 8px; font-size: 0.9em;">Admin Login</a>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+        
+        <div class="student-content">
+            <div class="attendance-card">
+                <h3>My Attendance Records</h3>
+                <div class="date-filter">
+                    <label>Filter by Date: </label>
+                    <input type="date" id="date-filter" onchange="loadAttendance()">
+                    <button onclick="loadAttendance()" style="margin-left: 10px; padding: 8px 16px; background: #333; color: white; border: none; border-radius: 8px; cursor: pointer;">Load</button>
+                </div>
+                <div id="attendance-table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Entry Time</th>
+                                <th>Exit Time</th>
+                                <th>Duration</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendance-body">
+                            <tr>
+                                <td colspan="5" style="text-align: center; padding: 20px; color: #666;">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Check if student is logged in
+        const studentUSN = sessionStorage.getItem('student_usn');
+        const studentName = sessionStorage.getItem('student_name');
+        
+        if (!studentUSN) {
+            window.location.href = '/student/login';
+        }
+        
+        document.getElementById('student-name').textContent = `Welcome, ${studentName || 'Student'}`;
+        document.getElementById('student-usn').textContent = studentUSN;
+        
+        // Set today's date as default
+        document.getElementById('date-filter').value = new Date().toISOString().split('T')[0];
+        
+        async function loadAttendance() {
+            const date = document.getElementById('date-filter').value;
+            const tbody = document.getElementById('attendance-body');
+            
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">Loading...</td></tr>';
+            
+            try {
+                const url = `/api/students/${studentUSN}/attendance${date ? '?date=' + date : ''}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load attendance');
+                }
+                
+                const data = await response.json();
+                
+                tbody.innerHTML = '';
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #666;">No attendance records found</td></tr>';
+                    return;
+                }
+                
+                data.forEach(record => {
+                    const row = document.createElement('tr');
+                    const duration = record.duration_minutes 
+                        ? (record.duration_minutes < 60 
+                            ? `${record.duration_minutes.toFixed(1)} min` 
+                            : `${Math.floor(record.duration_minutes / 60)}h ${Math.floor(record.duration_minutes % 60)}m`)
+                        : 'In Progress';
+                    
+                    const statusBadge = record.is_late 
+                        ? '<span class="late-badge">Late</span>' 
+                        : '<span class="on-time-badge">On Time</span>';
+                    
+                    row.innerHTML = `
+                        <td>${record.date}</td>
+                        <td>${record.entry_time}</td>
+                        <td>${record.exit_time || 'In Progress'}</td>
+                        <td>${duration}</td>
+                        <td>${statusBadge}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Error loading attendance:', error);
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #dc3545;">Error loading attendance data</td></tr>';
+            }
+        }
+        
+        function logout() {
+            sessionStorage.clear();
+            window.location.href = '/student/login';
+        }
+        
+        // Load attendance on page load
+        loadAttendance();
+    </script>
+</body>
+</html>
+

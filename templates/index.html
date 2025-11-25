@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <div>
+                    <h1>Attendance Tracker</h1>
+                    <div id="current-time">Current Time: <span id="time-display"></span></div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="notification-bell">
+                    <div class="bell-icon" onclick="toggleNotifications()">
+                        🔔
+                        <span class="bell-badge" id="alert-badge" style="display: none;">0</span>
+                    </div>
+                    <div id="notification-dropdown" class="notification-dropdown">
+                        <div class="notification-header">
+                            <h3>Notifications</h3>
+                            <button onclick="clearAlerts()" class="clear-alerts-btn">Clear</button>
+                        </div>
+                        <div id="alerts-container" class="alerts-container">
+                            <div class="no-alerts">No alerts yet</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button class="action-btn" id="add-user-btn" onclick="openAddUserModal()">➕ Add User</button>
+                    <button class="action-btn" id="manage-users-btn" onclick="openManageUsersModal()">👥 Manage Users</button>
+                    <button class="action-btn" id="approvals-btn" onclick="openApprovalsModal()">✅ Approvals</button>
+                    <button class="action-btn" id="analytics-btn" onclick="openAnalyticsModal()">📊 Analytics</button>
+                    <button class="action-btn" id="settings-btn" onclick="openSettingsModal()">⚙️ Settings</button>
+                    <button class="action-btn" id="camera-setup-btn" onclick="openCameraModal()">📷 Camera Setup</button>
+                    <button class="action-btn" id="refresh-btn" onclick="loadAttendance(true)">🔄 Refresh</button>
+                    <button class="action-btn" id="export-btn" onclick="exportReport()">📥 Export</button>
+                    <a href="/student/register" class="action-btn" style="text-decoration: none; display: inline-block;">👤 Student Register</a>
+                    <a href="/student/login" class="action-btn" style="text-decoration: none; display: inline-block;">👤 Student Login</a>
+                    <button class="action-btn logout-btn" id="logout-btn" onclick="logout()">🚪 Logout</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Top Row: Camera (Left) and Ongoing Attendance (Right) -->
+            <div class="top-row">
+                <!-- Camera Section (Left) -->
+                <div class="camera-section">
+                    <h2>Live Camera Feed</h2>
+                    <div class="camera-container">
+                        <img id="live-video" style="width: 100%; height: 100%; object-fit: contain; display: none;" alt="Live Camera Feed">
+                        <div id="camera-status" class="camera-status" style="display: none;">
+                            Camera ready - Face recognition active
+                        </div>
+                        <div id="no-camera" class="no-camera-message">
+                            <p>📹 No camera feed active</p>
+                            <p>Click "Camera Setup" to start a camera</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ongoing Attendance Section (Right) -->
+                <div class="ongoing-section">
+                    <h2>🟢 Ongoing Attendance</h2>
+                    <div class="table-container">
+                        <table id="ongoing-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>USN</th>
+                                    <th>Entry Time</th>
+                                    <th>Duration</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ongoing-body">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; padding: 20px; color: #666;">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom: Completed Attendance Records -->
+            <div class="completed-section">
+                <h2>✅ Completed Attendance Records</h2>
+                <div class="table-container">
+                    <table id="completed-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>USN</th>
+                                <th>Entry Time</th>
+                                <th>Exit Time</th>
+                                <th>Duration</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="completed-body">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 20px; color: #666;">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="add-user-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeAddUserModal()">&times;</span>
+            <h2>Add New User</h2>
+            <form id="user-form">
+                <div class="form-group">
+                    <label for="user-name">Name:</label>
+                    <input type="text" id="user-name" name="name" required placeholder="Enter user name">
+                </div>
+                <div class="form-group">
+                    <label for="user-usn">USN (University Serial Number):</label>
+                    <input type="text" id="user-usn" name="usn" required placeholder="Enter USN (e.g., 1ABC20CS001)" pattern="[A-Z0-9]+" title="USN should contain only uppercase letters and numbers">
+                    <small>Enter the University Serial Number (will be converted to uppercase)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Capture Face Image:</label>
+                    <div class="modal-camera-container">
+                        <video id="video" autoplay playsinline muted></video>
+                        <canvas id="canvas" style="display: none;"></canvas>
+                        <div id="modal-camera-status" style="display: none; padding: 10px; background: #d4edda; color: #155724; border-radius: 5px; margin-top: 10px;">
+                            Camera ready - Position your face in the frame
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" id="capture-btn" onclick="captureImage()" disabled>Capture Photo</button>
+                        <button type="button" id="retake-btn" onclick="retakePhoto()" style="display: none;">Retake</button>
+                    </div>
+                    <div id="preview-container" style="display: none;">
+                        <img id="preview" alt="Preview">
+                    </div>
+                </div>
+                
+                <button type="submit" class="submit-btn">Add User</button>
+            </form>
+            <div id="user-message" class="message"></div>
+        </div>
+    </div>
+
+    <!-- Manage Users Modal -->
+    <div id="manage-users-modal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close" onclick="closeManageUsersModal()">&times;</span>
+            <h2>Manage Users</h2>
+            <div id="users-loading" style="text-align: center; padding: 20px;">Loading users...</div>
+            <div id="users-list-container" style="display: none;">
+                <div class="users-table-container">
+                    <table id="users-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>USN</th>
+                                <th>Registered</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-body">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="users-message" class="message"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Camera Setup Modal -->
+    <div id="camera-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeCameraModal()">&times;</span>
+            <h2>Camera Setup</h2>
+            <form id="camera-form">
+                <div class="form-group">
+                    <label for="camera-id">Camera ID:</label>
+                    <input type="text" id="camera-id" required placeholder="e.g., macbook_camera" value="macbook_camera">
+                </div>
+                <div class="form-group">
+                    <label for="camera-url">Camera URL/Index:</label>
+                    <input type="text" id="camera-url" placeholder="0 for default webcam" value="0">
+                    <small>Using default MacBook camera (index 0). Change to 1, 2, etc. for other cameras, or RTSP URL for IP cameras</small>
+                </div>
+                <button type="submit" class="submit-btn">Start Camera</button>
+            </form>
+            <div id="camera-message" class="message"></div>
+            <div id="active-cameras" class="active-cameras"></div>
+        </div>
+    </div>
+
+    <!-- Approvals Modal -->
+    <div id="approvals-modal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <span class="close" onclick="closeApprovalsModal()">&times;</span>
+            <h2>Pending Student Approvals</h2>
+            <div id="approvals-loading" style="text-align: center; padding: 20px;">Loading...</div>
+            <div id="approvals-list-container" style="display: none;">
+                <div class="approvals-table-container">
+                    <table id="approvals-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>USN</th>
+                                <th>Registered</th>
+                                <th>Photos</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="approvals-body">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="approvals-message" class="message"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analytics Modal -->
+    <div id="analytics-modal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <span class="close" onclick="closeAnalyticsModal()">&times;</span>
+            <h2>📊 Attendance Analytics</h2>
+            <div style="margin-bottom: 20px;">
+                <label>Date: </label>
+                <input type="date" id="analytics-date" onchange="loadAnalytics()" value="">
+            </div>
+            <div id="analytics-content">
+                <div class="analytics-grid">
+                    <div class="analytics-card">
+                        <h3>Total Students</h3>
+                        <p id="total-students">-</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Present Today</h3>
+                        <p id="present-today">-</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Attendance %</h3>
+                        <p id="attendance-percent">-</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Late Students</h3>
+                        <p id="late-count">-</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Avg Duration</h3>
+                        <p id="avg-duration">-</p>
+                    </div>
+                    <div class="analytics-card">
+                        <h3>Currently Inside</h3>
+                        <p id="currently-inside">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close" onclick="closeSettingsModal()">&times;</span>
+            <h2>⚙️ Class Settings</h2>
+            <form id="settings-form">
+                <div class="form-group">
+                    <label for="settings-class-start-time">Class Start Time:</label>
+                    <input type="time" id="settings-class-start-time" name="class_start_time" required>
+                    <small>Set the time when class officially starts</small>
+                </div>
+                <div class="form-group">
+                    <label for="settings-late-threshold">Late Threshold (minutes):</label>
+                    <input type="number" id="settings-late-threshold" name="late_threshold_minutes" min="0" max="60" required>
+                    <small>Students entering after (Class Start Time + Threshold) will be marked as Late</small>
+                </div>
+                <div id="settings-last-updated" style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 5px; font-size: 0.9em; color: #666;">
+                    <strong>Last Updated:</strong> <span id="last-updated-text">-</span>
+                </div>
+                <button type="submit" class="submit-btn">💾 Save Settings</button>
+            </form>
+            <div id="settings-message" class="message"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

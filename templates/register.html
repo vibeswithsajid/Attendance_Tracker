@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Registration - Attendance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='login.css') }}">
+    <style>
+        .photo-preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .photo-item {
+            position: relative;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #f8f9fa;
+        }
+        .photo-item img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+        }
+        .photo-item .remove-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .photo-upload-area {
+            border: 2px dashed #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9fa;
+        }
+        .photo-upload-area:hover {
+            border-color: #999;
+            background: #f0f0f0;
+        }
+        .photo-upload-area input {
+            display: none;
+        }
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.85em;
+        }
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .back-link a {
+            color: #333;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box" style="max-width: 600px;">
+            <div class="login-header">
+                <h1>Student Registration</h1>
+                <p>Register to track your attendance</p>
+            </div>
+            
+            <form id="register-form">
+                <div class="form-group">
+                    <label for="name">Full Name:</label>
+                    <input type="text" id="name" name="name" required placeholder="Enter your full name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="usn">USN:</label>
+                    <input type="text" id="usn" name="usn" required placeholder="Enter your USN" style="text-transform: uppercase;">
+                    <small>University Serial Number (will be converted to uppercase)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="dob">Date of Birth (Password):</label>
+                    <input type="date" id="dob" name="dob" required>
+                    <small>Your DOB will be used as your password for login</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Face Photos (3-5 photos required):</label>
+                    <div class="photo-upload-area" onclick="document.getElementById('photo-input').click()">
+                        <p>Click to upload photos or drag and drop</p>
+                        <p style="font-size: 0.85em; color: #666; margin-top: 5px;">Upload 3-5 clear face photos</p>
+                    </div>
+                    <input type="file" id="photo-input" multiple accept="image/*" onchange="handlePhotoSelect(event)">
+                    <div class="photo-preview" id="photo-preview"></div>
+                    <small>Upload at least 3 photos of your face from different angles</small>
+                </div>
+                
+                <div id="register-message" class="message"></div>
+                
+                <button type="submit" class="login-btn" id="submit-btn">Register</button>
+            </form>
+            
+            <div class="back-link" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                <p style="margin: 0 0 10px 0; color: #666; font-size: 0.9em;">Already registered?</p>
+                <a href="/student/login" style="display: inline-block; padding: 10px 20px; background: #f0f0f0; color: #333; text-decoration: none; border-radius: 8px; font-size: 0.9em; margin-right: 10px;">Student Login</a>
+                <a href="/login" style="display: inline-block; padding: 10px 20px; background: #f0f0f0; color: #333; text-decoration: none; border-radius: 8px; font-size: 0.9em;">Admin Login</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedPhotos = [];
+        
+        function handlePhotoSelect(event) {
+            const files = Array.from(event.target.files);
+            if (files.length + selectedPhotos.length > 5) {
+                alert('Maximum 5 photos allowed');
+                return;
+            }
+            
+            files.forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        selectedPhotos.push({
+                            file: file,
+                            preview: e.target.result
+                        });
+                        updatePhotoPreview();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+        
+        function removePhoto(index) {
+            selectedPhotos.splice(index, 1);
+            updatePhotoPreview();
+        }
+        
+        function updatePhotoPreview() {
+            const preview = document.getElementById('photo-preview');
+            preview.innerHTML = '';
+            
+            selectedPhotos.forEach((photo, index) => {
+                const div = document.createElement('div');
+                div.className = 'photo-item';
+                div.innerHTML = `
+                    <img src="${photo.preview}" alt="Photo ${index + 1}">
+                    <button type="button" class="remove-btn" onclick="removePhoto(${index})">×</button>
+                `;
+                preview.appendChild(div);
+            });
+        }
+        
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (selectedPhotos.length < 3) {
+                showMessage('Please upload at least 3 photos', 'error');
+                return;
+            }
+            
+            const name = document.getElementById('name').value.trim();
+            const usn = document.getElementById('usn').value.trim().toUpperCase();
+            const dob = document.getElementById('dob').value;
+            
+            if (!name || !usn || !dob) {
+                showMessage('Please fill in all fields', 'error');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Registering...';
+            
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('usn', usn);
+            formData.append('password', dob);
+            formData.append('dob', dob);
+            
+            selectedPhotos.forEach((photo, index) => {
+                formData.append('images', photo.file);
+            });
+            
+            try {
+                const response = await fetch('/api/students/register', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showMessage('Registration submitted successfully! Waiting for admin approval.', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/student/login';
+                    }, 2000);
+                } else {
+                    showMessage(data.error || 'Registration failed', 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Register';
+                }
+            } catch (error) {
+                showMessage('Error connecting to server', 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Register';
+                console.error('Error:', error);
+            }
+        });
+        
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('register-message');
+            messageDiv.textContent = text;
+            messageDiv.className = `message ${type}`;
+        }
+    </script>
+</body>
+</html>
+

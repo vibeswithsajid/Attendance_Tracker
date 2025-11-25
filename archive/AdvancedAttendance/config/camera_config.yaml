@@ -1,0 +1,18 @@
+cameras:
+  - id: "cam_0"
+    name: "Webcam Main"
+    source: 0  # Use 0 for webcam, or "rtsp://..."
+    width: 640
+    height: 480
+    fps: 30
+    rotation: 0  # 0, 90, 180, 270
+    enabled: true
+
+  - id: "cam_1"
+    name: "Entrance CCTV"
+    source: "rtsp://admin:password@192.168.1.100:554/stream"
+    width: 1280
+    height: 720
+    fps: 15
+    rotation: 0
+    enabled: false

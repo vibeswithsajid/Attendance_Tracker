@@ -1,0 +1,37 @@
+app:
+  name: "InsightFace Attendance System"
+  version: "2.0.0"
+  debug: true
+  host: "127.0.0.1"
+  port: 8000
+
+directories:
+  data: "data"
+  faces: "data/known_faces"
+  screenshots: "data/screenshots"
+  logs: "logs"
+  models: "models"
+
+recognition:
+  model_name: "buffalo_l"
+  device: "cuda"  # Options: cpu, cuda
+  det_thresh: 0.5
+  rec_thresh: 0.6
+  batch_size: 1
+  similarity_threshold: 0.4
+
+attendance:
+  session_timeout: 30  # Seconds before a session is closed
+  cooldown: 5         # Seconds between processing same face
+
+telegram:
+  enabled: false
+  token: "YOUR_BOT_TOKEN"
+  chat_id: "YOUR_CHAT_ID"
+  rate_limit: 10      # Seconds between alerts for same person
+
+alerts:
+  audio_enabled: true
+  popup_enabled: true
+  screenshot_enabled: true
+  sound_file: "assets/alert.wav"

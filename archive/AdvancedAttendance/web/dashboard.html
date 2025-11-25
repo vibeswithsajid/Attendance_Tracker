@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Attendance Dashboard</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f2f5;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(640px, 1fr));
+            gap: 20px;
+        }
+
+        .camera-box {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .camera-box img {
+            width: 100%;
+            border-radius: 4px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .stats {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🎥 Live Dashboard</h1>
+
+    <div class="stats" id="status">
+        Loading status...
+    </div>
+
+    <div class="grid">
+        <div class="camera-box">
+            <h3>Camera: Webcam Main</h3>
+            <img src="/stream/cam_0" alt="Camera Feed">
+        </div>
+        <!-- Add more cameras dynamically or hardcode for now -->
+    </div>
+
+    <script>
+        async function updateStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                document.getElementById('status').innerHTML = `
+                    <strong>Active Cameras:</strong> ${data.cameras} | 
+                    <strong>Active Sessions:</strong> ${data.active_sessions} | 
+                    <strong>Known Faces:</strong> ${data.known_faces}
+                `;
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        setInterval(updateStatus, 2000);
+        updateStatus();
+    </script>
+</body>
+
+</html>
