@@ -25,6 +25,11 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = 'your-secret-key-change-in-production-12345'  # Change this in production!
 CORS(app)
 
+# Serve uploaded images
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    return send_from_directory('uploads', filename)
+
 # Hardcoded login credentials
 # Login credentials (use environment variables in production)
 ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'admin@gmail.com')
@@ -46,7 +51,7 @@ class User(Base):
     usn = Column(String(50), nullable=False, unique=True)  # University Serial Number (unique)
     password = Column(String(255), nullable=True)  # For student login (optional, can use USN)
     face_encodings = Column(String, nullable=False)  # JSON array of multiple face encodings
-    image_paths = Column(String)  # JSON array of image paths (3-5 photos)
+    image_paths = Column(String)  # JSON array of image paths (1-2 photos)
     status = Column(String(20), default='pending')  # pending, approved, rejected
     created_at = Column(DateTime, default=datetime.now)
     approved_at = Column(DateTime, nullable=True)
@@ -65,6 +70,7 @@ class Attendance(Base):
     is_late = Column(Integer, default=0)  # 0 = on time, 1 = late
     class_start_time = Column(DateTime, nullable=True)  # For late detection
     date = Column(String(20), nullable=False)  # YYYY-MM-DD for easy querying
+    is_archived = Column(Integer, default=0)  # 0 = not archived, 1 = archived
 
 class ClassSettings(Base):
     __tablename__ = 'class_settings'
@@ -172,6 +178,11 @@ def migrate_database():
                             conn.execute(text("ALTER TABLE attendance ADD COLUMN class_start_time DATETIME"))
                             conn.commit()
                             print("Migration: Added class_start_time column")
+                        
+                        if 'is_archived' not in columns:
+                            conn.execute(text("ALTER TABLE attendance ADD COLUMN is_archived INTEGER DEFAULT 0"))
+                            conn.commit()
+                            print("Migration: Added is_archived column")
                     
                     # Migrate class_settings table
                     if 'class_settings' not in existing_tables:
@@ -605,10 +616,10 @@ def process_attendance(user_id, user_name, user_usn, camera_id, is_entry=True):
                         
                         # Add alert
                         if is_late:
-                            message = f"⚠️ {user_name} ({user_usn}) entered LATE at {current_time.strftime('%H:%M:%S')}"
+                            message = f"{user_name} ({user_usn}) entered late"
                             add_alert('late', message, user_name, user_usn, current_time)
                         else:
-                            message = f"✅ {user_name} ({user_usn}) entered at {current_time.strftime('%H:%M:%S')}"
+                            message = f"{user_name} ({user_usn}) entered"
                             add_alert('entry', message, user_name, user_usn, current_time)
                         
                         print(f"✓ Entry recorded: {user_name} (USN: {user_usn}) at {current_time.strftime('%Y-%m-%d %H:%M:%S')} {'[LATE]' if is_late else ''}")
@@ -637,7 +648,7 @@ def process_attendance(user_id, user_name, user_usn, camera_id, is_entry=True):
                         process_slot_attendance(user_id, user_name, user_usn, entry_time, exit_time, today_str)
                         
                         # Add exit alert
-                        message = f"🚪 {user_name} ({user_usn}) exited at {exit_time.strftime('%H:%M:%S')} (Duration: {duration:.1f} min)"
+                        message = f"{user_name} ({user_usn}) exited"
                         add_alert('exit', message, user_name, user_usn, exit_time)
                         
                         print(f"✓ Exit recorded: {user_name} - Duration: {duration:.2f} minutes")
@@ -1071,11 +1082,13 @@ def delete_user(user_id):
 
 @app.route('/api/attendance', methods=['GET'])
 def get_attendance():
-    """Get attendance records"""
+    """Get attendance records (non-archived by default)"""
     session = Session()
     try:
-        # Get all attendance records, ordered by most recent first
-        records = session.query(Attendance).order_by(Attendance.entry_time.desc()).limit(200).all()
+        # Get non-archived attendance records, ordered by most recent first
+        records = session.query(Attendance).filter(
+            Attendance.is_archived == 0
+        ).order_by(Attendance.entry_time.desc()).limit(200).all()
         
         result = []
         for record in records:
@@ -1327,12 +1340,12 @@ def register_student():
     if not usn:
         return jsonify({'error': 'USN cannot be empty'}), 400
     
-    # Get multiple images (3-5 photos)
+    # Get multiple images (1-2 photos)
     images = request.files.getlist('images')
-    if len(images) < 3:
-        return jsonify({'error': 'Please upload at least 3 face photos'}), 400
-    if len(images) > 5:
-        return jsonify({'error': 'Maximum 5 photos allowed'}), 400
+    if len(images) < 1:
+        return jsonify({'error': 'Please upload at least 1 face photo'}), 400
+    if len(images) > 2:
+        return jsonify({'error': 'Maximum 2 photos allowed'}), 400
     
     face_encodings_list = []
     image_paths = []
@@ -1360,11 +1373,11 @@ def register_student():
             os.remove(filepath)
             return jsonify({'error': f'Error processing photo {idx+1}: {str(e)}'}), 400
     
-    if len(face_encodings_list) < 3:
+    if len(face_encodings_list) < 1:
         for path in image_paths:
             if os.path.exists(path):
                 os.remove(path)
-        return jsonify({'error': 'At least 3 valid face photos required'}), 400
+        return jsonify({'error': 'At least 1 valid face photo required'}), 400
     
     session = Session()
     try:
@@ -1485,8 +1498,10 @@ def student_profile(usn):
         else:
             # Update profile photos
             images = request.files.getlist('images')
-            if len(images) < 3:
-                return jsonify({'error': 'Please upload at least 3 face photos'}), 400
+            if len(images) < 1:
+                return jsonify({'error': 'Please upload at least 1 face photo'}), 400
+            if len(images) > 2:
+                return jsonify({'error': 'Maximum 2 photos allowed'}), 400
             
             face_encodings_list = []
             image_paths = []
@@ -1508,7 +1523,7 @@ def student_profile(usn):
                 except:
                     os.remove(filepath)
             
-            if len(face_encodings_list) >= 3:
+            if len(face_encodings_list) >= 1:
                 # Delete old images
                 old_paths = json.loads(user.image_paths) if user.image_paths else []
                 for path in old_paths:
@@ -1524,7 +1539,7 @@ def student_profile(usn):
                 
                 return jsonify({'message': 'Profile updated successfully'}), 200
             else:
-                return jsonify({'error': 'At least 3 valid face photos required'}), 400
+                return jsonify({'error': 'At least 1 valid face photo required'}), 400
     finally:
         session.close()
 
@@ -1947,10 +1962,474 @@ def class_slot_detail(slot_id):
     finally:
         session.close()
 
+@app.route('/api/reports/export', methods=['GET'])
+@login_required
+def export_attendance_report():
+    """Export attendance report with date range and optional hour combining"""
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    format_type = request.args.get('format', 'excel')  # 'excel' or 'pdf'
+    combine_hours = request.args.get('combine_hours', 'false').lower() == 'true'
+    
+    if not start_date or not end_date:
+        return jsonify({'error': 'Start date and end date are required'}), 400
+    
+    # Sanitize dates for filename (remove any invalid characters)
+    import re
+    safe_start_date = re.sub(r'[^\w\-]', '_', start_date)
+    safe_end_date = re.sub(r'[^\w\-]', '_', end_date)
+    
+    session = Session()
+    try:
+        
+        # Get attendance records in date range
+        records = session.query(Attendance).filter(
+            Attendance.is_archived == 0,
+            Attendance.date >= start_date,
+            Attendance.date <= end_date
+        ).order_by(Attendance.user_id, Attendance.entry_time).all()
+        
+        # Check if there are any records
+        if not records:
+            return jsonify({'error': 'No attendance records found for the selected date range'}), 404
+        
+        # First, ensure all records have USN populated
+        for record in records:
+            usn = getattr(record, 'user_usn', '') or ''
+            if not usn or usn == 'N/A':
+                user = session.query(User).filter(User.id == record.user_id).first()
+                if user and user.usn:
+                    if not hasattr(record, 'user_usn') or not record.user_usn:
+                        record.user_usn = user.usn
+        
+        # Group records by student FIRST (using user_id only to ensure same student)
+        students_raw = {}
+        for record in records:
+            # Use user_id as primary key to ensure same student is grouped together
+            if record.user_id not in students_raw:
+                students_raw[record.user_id] = []
+            students_raw[record.user_id].append(record)
+        
+        # Track original session counts and late counts BEFORE combining (for accurate summary)
+        original_session_counts = {}
+        original_late_counts = {}
+        for user_id, student_records in students_raw.items():
+            original_session_counts[user_id] = len(student_records)
+            original_late_counts[user_id] = sum(1 for r in student_records if getattr(r, 'is_late', 0) == 1)
+        
+        # Now combine within hours for each student if needed
+        combined_records = []
+        for user_id, student_records in students_raw.items():
+            if combine_hours:
+                # Combine records within the same hour for this student
+                combined = combine_records_by_hour(student_records)
+                combined_records.extend(combined)
+            else:
+                combined_records.extend(student_records)
+        
+        # Group records by student and sort by time (now with proper USN)
+        students_data = {}
+        for record in combined_records:
+            # Get USN (should already be populated, but double-check)
+            usn = getattr(record, 'user_usn', '') or ''
+            if not usn or usn == 'N/A':
+                user = session.query(User).filter(User.id == record.user_id).first()
+                if user and user.usn:
+                    usn = user.usn
+            
+            # Use user_id as the key to ensure same student is always grouped together
+            student_key = record.user_id
+            
+            if student_key not in students_data:
+                # Get the most common name and USN for this user_id (in case of inconsistencies)
+                user = session.query(User).filter(User.id == record.user_id).first()
+                final_name = user.name if user else record.user_name
+                final_usn = user.usn if user and user.usn else (usn or 'N/A')
+                
+                # Store original session count and late count (before combining) for accurate summary
+                original_count = original_session_counts.get(record.user_id, len(students_raw.get(record.user_id, [])))
+                original_late_count = original_late_counts.get(record.user_id, 0)
+                
+                students_data[student_key] = {
+                    'student_id': record.user_id,
+                    'name': final_name,
+                    'usn': final_usn,
+                    'records': [],
+                    'original_session_count': original_count,  # Total sessions before combining
+                    'original_late_count': original_late_count  # Total late sessions before combining
+                }
+            
+            # Calculate duration
+            if record.exit_time:
+                duration = (record.exit_time - record.entry_time).total_seconds() / 60
+                duration_minutes = round(duration, 2)
+                duration_str = f"{duration:.1f} min" if duration < 60 else f"{int(duration // 60)}h {int(duration % 60)}m"
+            else:
+                duration_minutes = None
+                duration_str = "In progress"
+            
+            # Add combined count note if applicable
+            notes = ''
+            if combine_hours and hasattr(record, '_combined_count') and record._combined_count > 1:
+                notes = f"Combined {record._combined_count} sessions"
+            
+            students_data[student_key]['records'].append({
+                'date': record.date,
+                'entry_time': record.entry_time,
+                'exit_time': record.exit_time,
+                'entry_time_str': record.entry_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'exit_time_str': record.exit_time.strftime('%Y-%m-%d %H:%M:%S') if record.exit_time else 'N/A',
+                'duration': duration_str,
+                'duration_minutes': duration_minutes,
+                'status': 'Late' if getattr(record, 'is_late', 0) == 1 else 'On Time',
+                'is_late': getattr(record, 'is_late', 0) == 1,
+                'notes': notes
+            })
+        
+        # Sort records by entry time for each student
+        for student_key in students_data:
+            students_data[student_key]['records'].sort(key=lambda x: x['entry_time'])
+        
+        # Check if we have any students with data
+        if not students_data:
+            return jsonify({'error': 'No attendance records found for the selected date range'}), 404
+        
+        # Build professional export data - organized by student with time sequence
+        data = []
+        # Sort by student name, then USN
+        sorted_students = sorted(students_data.items(), key=lambda x: (x[1]['name'], x[1]['usn']))
+        for student_key, student in sorted_students:
+            
+            # Use original session count (before combining) for summary
+            # This shows total sessions even if some were combined within same hour
+            total_original_sessions = student.get('original_session_count', len(student['records']))
+            
+            # Use original late count (before combining) for accurate summary
+            late_count = student.get('original_late_count', sum(1 for r in student['records'] if r['is_late']))
+            
+            # Calculate totals for this student (across ALL their records)
+            total_duration = sum(r['duration_minutes'] for r in student['records'] if r['duration_minutes'])
+            
+            # Get date range for this student
+            dates = sorted(set(r['date'] for r in student['records']))
+            date_range = dates[0] if len(dates) == 1 else f"{dates[0]} to {dates[-1]}"
+            
+            # Add ONE student summary row at the beginning
+            data.append({
+                'Student ID': student['student_id'],
+                'Name': student['name'],
+                'USN': student['usn'],
+                'Date': f"SUMMARY - {total_original_sessions} session(s) | {date_range}",
+                'Entry Time': '',
+                'Exit Time': '',
+                'Duration': f"{total_duration:.1f} min" if total_duration else 'N/A',
+                'Status': f"{late_count} late" if late_count > 0 else 'All on time',
+                'Notes': ''
+            })
+            
+            # Add individual records in time sequence (all records for this student)
+            for record in student['records']:
+                data.append({
+                    'Student ID': '',
+                    'Name': '',
+                    'USN': '',
+                    'Date': record['date'],
+                    'Entry Time': record['entry_time_str'],
+                    'Exit Time': record['exit_time_str'],
+                    'Duration': record['duration'],
+                    'Status': record['status'],
+                    'Notes': record['notes']
+                })
+            
+            # Add blank row for separation between students
+            data.append({
+                'Student ID': '',
+                'Name': '',
+                'USN': '',
+                'Date': '',
+                'Entry Time': '',
+                'Exit Time': '',
+                'Duration': '',
+                'Status': '',
+                'Notes': ''
+            })
+        
+        if format_type == 'excel':
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Attendance Report"
+            
+            headers = ['Student ID', 'Name', 'USN', 'Date', 'Entry Time', 'Exit Time', 'Duration', 'Status', 'Notes']
+            
+            # Define styles
+            header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            summary_fill = PatternFill(start_color="E7F3FF", end_color="E7F3FF", fill_type="solid")
+            summary_font = Font(bold=True, size=10)
+            late_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            # Add title row
+            ws.merge_cells('A1:I1')
+            title_cell = ws['A1']
+            title_cell.value = f"Attendance Report - {start_date} to {end_date}"
+            title_cell.font = Font(bold=True, size=14, color="366092")
+            title_cell.alignment = Alignment(horizontal='center', vertical='center')
+            title_cell.fill = PatternFill(start_color="E7F3FF", end_color="E7F3FF", fill_type="solid")
+            
+            # Add subtitle row
+            ws.merge_cells('A2:I2')
+            subtitle_cell = ws['A2']
+            subtitle_text = f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            if combine_hours:
+                subtitle_text += " | Records combined within same hour"
+            subtitle_cell.value = subtitle_text
+            subtitle_cell.font = Font(size=10, italic=True, color="666666")
+            subtitle_cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+            # Add header row (row 3)
+            for col_num, header in enumerate(headers, 1):
+                cell = ws.cell(row=3, column=col_num)
+                cell.value = header
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = border
+            
+            # Add data rows starting from row 4
+            current_row = 4
+            for row_data in data:
+                # Skip completely empty rows
+                if not any(str(v).strip() for v in row_data.values() if v):
+                    current_row += 1
+                    continue
+                
+                is_summary = 'SUMMARY' in str(row_data.get('Date', ''))
+                is_late = row_data.get('Status') == 'Late'
+                
+                for col_num, header in enumerate(headers, 1):
+                    cell = ws.cell(row=current_row, column=col_num)
+                    cell.value = row_data.get(header, '')
+                    cell.border = border
+                    
+                    if is_summary:
+                        cell.fill = summary_fill
+                        cell.font = summary_font
+                        cell.alignment = Alignment(horizontal='left', vertical='center')
+                    else:
+                        cell.alignment = Alignment(horizontal='left', vertical='center')
+                        if is_late and header == 'Status':
+                            cell.fill = late_fill
+                
+                current_row += 1
+            
+            # Auto-adjust column widths
+            for col_num in range(1, len(headers) + 1):
+                max_length = 0
+                for row in ws.iter_rows(min_row=3, max_row=ws.max_row, min_col=col_num, max_col=col_num):
+                    for cell in row:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                ws.column_dimensions[get_column_letter(col_num)].width = min(max(max_length + 2, 12), 30)
+            
+            output = io.BytesIO()
+            wb.save(output)
+            output.seek(0)
+            filename = f'attendance_{safe_start_date}_to_{safe_end_date}.xlsx'
+            return Response(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+            )
+        else:  # PDF
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=0.5*inch, rightMargin=0.5*inch)
+            elements = []
+            styles = getSampleStyleSheet()
+            
+            # Title
+            title_style = styles['Title']
+            title_style.fontSize = 16
+            title_style.textColor = colors.HexColor('#366092')
+            title_text = f"Attendance Report"
+            elements.append(Paragraph(title_text, title_style))
+            elements.append(Spacer(1, 0.05*inch))
+            
+            # Subtitle
+            subtitle_style = styles['Normal']
+            subtitle_style.fontSize = 10
+            subtitle_style.textColor = colors.grey
+            subtitle_text = f"Period: {start_date} to {end_date}"
+            if combine_hours:
+                subtitle_text += " | Records combined within same hour"
+            elements.append(Paragraph(subtitle_text, subtitle_style))
+            elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
+            elements.append(Spacer(1, 0.2*inch))
+            
+            # Build table with professional styling
+            table_data = [['Student ID', 'Name', 'USN', 'Date', 'Entry Time', 'Exit Time', 'Duration', 'Status', 'Notes']]
+            
+            row_styles = []  # Track which rows need special styling
+            for row_dict in data:
+                # Skip empty separator rows in PDF
+                if not any(str(v).strip() for v in row_dict.values() if v):
+                    continue
+                    
+                row = [
+                    str(row_dict.get('Student ID', '')),
+                    row_dict.get('Name', ''),
+                    row_dict.get('USN', ''),
+                    row_dict.get('Date', ''),
+                    row_dict.get('Entry Time', ''),
+                    row_dict.get('Exit Time', ''),
+                    row_dict.get('Duration', ''),
+                    row_dict.get('Status', ''),
+                    row_dict.get('Notes', '')
+                ]
+                table_data.append(row)
+                
+                # Track row type for styling
+                if 'SUMMARY' in str(row_dict.get('Date', '')):
+                    row_styles.append('summary')
+                elif row_dict.get('Status') == 'Late':
+                    row_styles.append('late')
+                else:
+                    row_styles.append('normal')
+            
+            table = Table(table_data, repeatRows=1)
+            
+            # Base table style
+            table_style = [
+                # Header row
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('TOPPADDING', (0, 0), (-1, 0), 10),
+                
+                # Data rows
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]
+            
+            # Apply row-specific styles
+            for i, style_type in enumerate(row_styles, 1):
+                row_idx = i + 1  # +1 because row 0 is header
+                if style_type == 'summary':
+                    table_style.append(('FONTNAME', (0, row_idx), (-1, row_idx), 'Helvetica-Bold'))
+                    table_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor('#E7F3FF')))
+                elif style_type == 'late':
+                    table_style.append(('BACKGROUND', (7, row_idx), (7, row_idx), colors.HexColor('#FFF3CD')))  # Status column
+            
+            table.setStyle(TableStyle(table_style))
+            elements.append(table)
+            
+            # Check if there's any data to export
+            if len(table_data) <= 1:  # Only header row
+                return jsonify({'error': 'No data to export'}), 404
+            
+            try:
+                doc.build(elements)
+                buffer.seek(0)
+                
+                # Verify buffer has content
+                if buffer.getvalue() == b'':
+                    return jsonify({'error': 'Failed to generate PDF file'}), 500
+                
+                filename = f'attendance_{safe_start_date}_to_{safe_end_date}.pdf'
+                return Response(
+                    buffer,
+                    mimetype='application/pdf',
+                    headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+                )
+            except Exception as pdf_error:
+                print(f"PDF generation error: {pdf_error}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'error': f'Failed to generate PDF: {str(pdf_error)}'}), 500
+    except Exception as e:
+        print(f"Error exporting report: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+def combine_records_by_hour(records):
+    """Combine multiple entry/exit records within the same hour for the same user"""
+    from collections import defaultdict
+    
+    # Group records by (user_id, date, hour)
+    grouped = defaultdict(list)
+    incomplete_records = []
+    
+    for record in records:
+        if not record.exit_time:
+            # Keep incomplete records separate
+            incomplete_records.append(record)
+            continue
+        
+        # Get hour from entry time
+        entry_hour = record.entry_time.replace(minute=0, second=0, microsecond=0)
+        key = (record.user_id, record.date, entry_hour)
+        grouped[key].append(record)
+    
+    combined = []
+    processed_ids = set()
+    
+    for key, group_records in grouped.items():
+        if len(group_records) == 1:
+            # Single record, no combining needed
+            combined.append(group_records[0])
+            processed_ids.add(group_records[0].id)
+        else:
+            # Multiple records in same hour - combine them
+            # Sort by entry time
+            group_records.sort(key=lambda x: x.entry_time)
+            
+            # Take first entry and last exit
+            first_record = group_records[0]
+            last_record = max(group_records, key=lambda x: x.exit_time if x.exit_time else datetime.min)
+            
+            # Modify first record to represent combined session
+            first_record.exit_time = last_record.exit_time
+            
+            # Calculate total duration
+            if first_record.exit_time:
+                total_duration = (first_record.exit_time - first_record.entry_time).total_seconds() / 60
+                first_record.duration_minutes = round(total_duration, 2)
+            
+            # Mark as combined (store count in a custom attribute)
+            first_record._combined_count = len(group_records)
+            combined.append(first_record)
+            
+            # Mark all records in group as processed
+            for r in group_records:
+                processed_ids.add(r.id)
+    
+    # Add incomplete records
+    combined.extend(incomplete_records)
+    
+    # Sort by entry time
+    combined.sort(key=lambda x: x.entry_time)
+    return combined
+
 @app.route('/api/reports/daily', methods=['GET'])
 @login_required
 def export_daily_report():
-    """Export daily attendance report as Excel or PDF (slot-based)"""
+    """Export daily attendance report as Excel or PDF (slot-based) - Legacy endpoint"""
     date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
     format_type = request.args.get('format', 'excel')  # 'excel' or 'pdf'
     
@@ -2146,6 +2625,96 @@ def get_students_inside():
                 'last_seen': session_data['last_seen'].strftime('%Y-%m-%d %H:%M:%S')
             })
         return jsonify(inside_list), 200
+
+@app.route('/api/attendance/archive', methods=['GET'])
+@login_required
+def get_archived_attendance():
+    """Get archived attendance records"""
+    session = Session()
+    try:
+        records = session.query(Attendance).filter(
+            Attendance.is_archived == 1
+        ).order_by(Attendance.entry_time.desc()).limit(500).all()
+        
+        result = []
+        for record in records:
+            usn = getattr(record, 'user_usn', '') or ''
+            if not usn or usn == 'N/A':
+                user = session.query(User).filter(User.id == record.user_id).first()
+                if user and user.usn:
+                    usn = user.usn
+            
+            if record.duration_minutes:
+                if record.duration_minutes < 60:
+                    duration_str = f"{record.duration_minutes:.1f} min"
+                else:
+                    hours = int(record.duration_minutes // 60)
+                    minutes = int(record.duration_minutes % 60)
+                    duration_str = f"{hours}h {minutes}m"
+            else:
+                duration_str = "In progress"
+            
+            result.append({
+                'id': record.id,
+                'name': record.user_name,
+                'usn': usn or 'N/A',
+                'date': getattr(record, 'date', record.entry_time.strftime('%Y-%m-%d')),
+                'entry': record.entry_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'exit': record.exit_time.strftime('%Y-%m-%d %H:%M:%S') if record.exit_time else 'N/A',
+                'duration': duration_str,
+                'is_late': bool(getattr(record, 'is_late', 0))
+            })
+        
+        return jsonify(result), 200
+    except Exception as e:
+        print(f"Error getting archived attendance: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+@app.route('/api/attendance/<int:record_id>/archive', methods=['POST'])
+@login_required
+def archive_attendance(record_id):
+    """Archive an attendance record"""
+    session = Session()
+    try:
+        record = session.query(Attendance).filter(Attendance.id == record_id).first()
+        if not record:
+            return jsonify({'error': 'Attendance record not found'}), 404
+        
+        record.is_archived = 1
+        session.commit()
+        
+        return jsonify({'message': 'Record archived successfully', 'id': record_id}), 200
+    except Exception as e:
+        session.rollback()
+        print(f"Error archiving record: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+@app.route('/api/attendance/<int:record_id>/unarchive', methods=['POST'])
+@login_required
+def unarchive_attendance(record_id):
+    """Unarchive an attendance record"""
+    session = Session()
+    try:
+        record = session.query(Attendance).filter(Attendance.id == record_id).first()
+        if not record:
+            return jsonify({'error': 'Attendance record not found'}), 404
+        
+        record.is_archived = 0
+        session.commit()
+        
+        return jsonify({'message': 'Record unarchived successfully', 'id': record_id}), 200
+    except Exception as e:
+        session.rollback()
+        print(f"Error unarchiving record: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)

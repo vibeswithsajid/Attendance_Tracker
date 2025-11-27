@@ -103,14 +103,14 @@
                 </div>
                 
                 <div class="form-group">
-                    <label>Face Photos (3-5 photos required):</label>
+                    <label>Face Photos (1-2 photos required):</label>
                     <div class="photo-upload-area" onclick="document.getElementById('photo-input').click()">
                         <p>Click to upload photos or drag and drop</p>
-                        <p style="font-size: 0.85em; color: #666; margin-top: 5px;">Upload 3-5 clear face photos</p>
+                        <p style="font-size: 0.85em; color: #666; margin-top: 5px;">Upload 1-2 clear face photos</p>
                     </div>
                     <input type="file" id="photo-input" multiple accept="image/*" onchange="handlePhotoSelect(event)">
                     <div class="photo-preview" id="photo-preview"></div>
-                    <small>Upload at least 3 photos of your face from different angles</small>
+                    <small>Upload 1-2 photos of your face</small>
                 </div>
                 
                 <div id="register-message" class="message"></div>
@@ -131,8 +131,8 @@
         
         function handlePhotoSelect(event) {
             const files = Array.from(event.target.files);
-            if (files.length + selectedPhotos.length > 5) {
-                alert('Maximum 5 photos allowed');
+            if (files.length + selectedPhotos.length > 2) {
+                alert('Maximum 2 photos allowed');
                 return;
             }
             
@@ -174,8 +174,8 @@
         document.getElementById('register-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            if (selectedPhotos.length < 3) {
-                showMessage('Please upload at least 3 photos', 'error');
+            if (selectedPhotos.length < 1) {
+                showMessage('Please upload at least 1 photo', 'error');
                 return;
             }
             

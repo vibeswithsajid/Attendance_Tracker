@@ -33,6 +33,10 @@ window.addEventListener('DOMContentLoaded', () => {
     // Auto-refresh alerts every 3 seconds
     setInterval(loadAlerts, 3000);
     
+    // Check for pending approvals and show notification
+    checkPendingApprovals();
+    setInterval(checkPendingApprovals, 30000); // Check every 30 seconds
+    
     // Setup forms
     setupCameraForm();
     setupUserForm();
@@ -138,7 +142,7 @@ function closeCameraModal() {
 
 // Close modals when clicking outside
 window.onclick = function (event) {
-    const modals = ['add-user-modal', 'manage-users-modal', 'camera-modal', 'settings-modal', 'analytics-modal', 'approvals-modal'];
+    const modals = ['add-user-modal', 'manage-users-modal', 'camera-modal', 'settings-modal', 'analytics-modal', 'approvals-modal', 'archive-modal', 'photo-viewer-modal', 'export-modal'];
     modals.forEach(modalId => {
         const modal = document.getElementById(modalId);
         if (event.target === modal) {
@@ -148,6 +152,9 @@ window.onclick = function (event) {
             else if (modalId === 'settings-modal') closeSettingsModal();
             else if (modalId === 'analytics-modal') closeAnalyticsModal();
             else if (modalId === 'approvals-modal') closeApprovalsModal();
+            else if (modalId === 'archive-modal') closeArchiveModal();
+            else if (modalId === 'photo-viewer-modal') closePhotoViewer();
+            else if (modalId === 'export-modal') closeExportModal();
         }
     });
 }
@@ -428,12 +435,15 @@ async function loadOngoingAttendance() {
                 <td>${record.entry}</td>
                 <td>${durationBadge}</td>
                 <td>🟢 Active</td>
+                <td>
+                    <button onclick="archiveRecord(${record.id})" class="archive-btn" title="Archive this record">🗄️</button>
+                </td>
             `;
             tbody.appendChild(row);
         });
     } catch (error) {
         console.error('Error loading ongoing attendance:', error);
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #dc3545;">Error loading data</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #dc3545;">Error loading data</td></tr>';
     }
 }
 
@@ -479,6 +489,9 @@ async function loadCompletedAttendance() {
                 <td>${record.exit}</td>
                 <td>${durationBadge}</td>
                 <td>✅ Completed</td>
+                <td>
+                    <button onclick="archiveRecord(${record.id})" class="archive-btn" title="Archive this record">🗄️</button>
+                </td>
             `;
             tbody.appendChild(row);
         });
@@ -861,9 +874,7 @@ async function loadAlerts() {
         }
         
         container.innerHTML = alerts.slice(-10).reverse().map(alert => {
-            const icon = alert.type === 'late' ? '⚠️' : alert.type === 'entry' ? '✅' : '🚪';
             return `<div class="alert-item alert-${alert.type}">
-                <span class="alert-icon">${icon}</span>
                 <div class="alert-content">
                     <div class="alert-message">${alert.message}</div>
                     <div class="alert-time">${alert.timestamp}</div>
@@ -886,12 +897,60 @@ async function clearAlerts() {
     }
 }
 
+// Check for pending approvals and show notification
+async function checkPendingApprovals() {
+    try {
+        const response = await fetch('/api/admin/approvals');
+        if (!response.ok) return;
+        const pending = await response.json();
+        
+        const approvalsBtn = document.getElementById('approvals-btn');
+        if (approvalsBtn && pending.length > 0) {
+            // Add notification badge
+            let badge = approvalsBtn.querySelector('.approval-badge');
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'approval-badge';
+                badge.style.cssText = 'position: absolute; top: -4px; right: -4px; background: #dc3545; color: white; border-radius: 10px; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; border: 2px solid #ffffff;';
+                approvalsBtn.style.position = 'relative';
+                approvalsBtn.appendChild(badge);
+            }
+            badge.textContent = pending.length > 99 ? '99+' : pending.length;
+            badge.style.display = 'flex';
+            
+            // Show browser notification if permission granted
+            if (Notification.permission === 'granted' && pending.length > 0) {
+                new Notification('Pending Approvals', {
+                    body: `${pending.length} student(s) waiting for approval`,
+                    icon: '/static/favicon.ico'
+                });
+            }
+        } else if (approvalsBtn) {
+            const badge = approvalsBtn.querySelector('.approval-badge');
+            if (badge) badge.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error checking pending approvals:', error);
+    }
+}
+
+// Request notification permission on page load
+if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+}
+
 // Approvals Modal
 function openApprovalsModal() {
     const modal = document.getElementById('approvals-modal');
     if (modal) {
         modal.style.display = 'block';
         loadPendingApprovals();
+        // Clear badge when modal is opened
+        const approvalsBtn = document.getElementById('approvals-btn');
+        if (approvalsBtn) {
+            const badge = approvalsBtn.querySelector('.approval-badge');
+            if (badge) badge.style.display = 'none';
+        }
     }
 }
 
@@ -923,19 +982,41 @@ async function loadPendingApprovals() {
             return;
         }
         
-        tbody.innerHTML = pending.map(user => `
+        tbody.innerHTML = pending.map(user => {
+            const photoCount = user.image_paths ? user.image_paths.length : 0;
+            const imagePathsJson = JSON.stringify(user.image_paths || []);
+            return `
             <tr>
                 <td>${user.id}</td>
                 <td><strong>${user.name}</strong></td>
                 <td><code>${user.usn}</code></td>
                 <td>${user.created_at}</td>
-                <td>${user.image_paths ? user.image_paths.length : 0} photos</td>
+                <td>
+                    <button class="view-photos-btn" 
+                            data-user-id="${user.id}"
+                            data-user-name="${(user.name || '').replace(/"/g, '&quot;')}"
+                            data-image-paths='${imagePathsJson.replace(/'/g, "&#39;")}'
+                            style="background: #e8f4f8; color: #0066cc; border: 1px solid #b0d4e0; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.9em; transition: all 0.3s;">
+                        📷 ${photoCount} photo${photoCount !== 1 ? 's' : ''}
+                    </button>
+                </td>
                 <td>
                     <button onclick="approveStudent(${user.id})" class="btn-approve">✅ Approve</button>
                     <button onclick="rejectStudent(${user.id})" class="btn-reject">❌ Reject</button>
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
+        
+        // Add event listeners to photo buttons
+        tbody.querySelectorAll('.view-photos-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const userId = this.getAttribute('data-user-id');
+                const userName = this.getAttribute('data-user-name');
+                const imagePathsJson = this.getAttribute('data-image-paths');
+                viewStudentPhotos(userId, userName, imagePathsJson);
+            });
+        });
         
         container.style.display = 'block';
     } catch (error) {
@@ -955,6 +1036,7 @@ async function approveStudent(userId) {
             alert('Student approved successfully');
             loadPendingApprovals();
             loadUsers();
+            checkPendingApprovals(); // Update notification badge
         } else {
             alert(data.error || 'Error approving student');
         }
@@ -974,6 +1056,7 @@ async function rejectStudent(userId) {
         if (response.ok) {
             alert('Student rejected');
             loadPendingApprovals();
+            checkPendingApprovals(); // Update notification badge
         } else {
             alert(data.error || 'Error rejecting student');
         }
@@ -981,6 +1064,127 @@ async function rejectStudent(userId) {
         alert('Error rejecting student');
         console.error('Error:', error);
     }
+}
+
+function viewStudentPhotos(userId, userName, imagePathsJson) {
+    const modal = document.getElementById('photo-viewer-modal');
+    const container = document.getElementById('photo-viewer-container');
+    const title = document.getElementById('photo-viewer-title');
+    
+    if (!modal || !container || !title) {
+        console.error('Photo viewer modal elements not found');
+        return;
+    }
+    
+    // Parse the JSON string - handle HTML entities
+    let imagePaths;
+    try {
+        // Decode HTML entities first
+        const decodedJson = imagePathsJson.replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+        imagePaths = JSON.parse(decodedJson);
+        console.log('Parsed image paths:', imagePaths);
+    } catch (e) {
+        console.error('Error parsing image paths:', e, 'Raw JSON:', imagePathsJson);
+        imagePaths = [];
+    }
+    
+    title.textContent = `${userName}'s Photos`;
+    container.innerHTML = '';
+    
+    if (!imagePaths || imagePaths.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No photos available</p>';
+        modal.style.display = 'block';
+        return;
+    }
+    
+    imagePaths.forEach((imagePath, index) => {
+        const photoDiv = document.createElement('div');
+        photoDiv.style.cssText = 'position: relative; border: 2px solid #e0e0e0; border-radius: 8px; overflow: hidden; background: #f8f9fa; cursor: pointer; transition: all 0.3s; display: flex; flex-direction: column;';
+        photoDiv.onmouseover = function() {
+            this.style.transform = 'scale(1.02)';
+            this.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+        };
+        photoDiv.onmouseout = function() {
+            this.style.transform = 'scale(1)';
+            this.style.boxShadow = 'none';
+        };
+        photoDiv.onclick = function() {
+            openFullSizeImage(imagePath);
+        };
+        
+        const img = document.createElement('img');
+        // Ensure the path starts with uploads/ if it doesn't already
+        const imageUrl = imagePath.startsWith('uploads/') ? `/${imagePath}` : `/uploads/${imagePath}`;
+        img.src = imageUrl;
+        img.style.cssText = 'width: 100%; height: auto; min-height: 200px; max-height: 400px; object-fit: contain; display: block; background: #f8f9fa;';
+        img.onerror = function() {
+            console.error('Failed to load image:', imageUrl);
+            this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23ddd" width="200" height="200"/%3E%3Ctext fill="%23999" font-family="sans-serif" font-size="14" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage not found%3C/text%3E%3C/svg%3E';
+        };
+        
+        const label = document.createElement('div');
+        label.textContent = `Photo ${index + 1}`;
+        label.style.cssText = 'padding: 8px; text-align: center; background: #f0f0f0; font-size: 0.85em; color: #666;';
+        
+        photoDiv.appendChild(img);
+        photoDiv.appendChild(label);
+        container.appendChild(photoDiv);
+    });
+    
+    modal.style.display = 'block';
+}
+
+function closePhotoViewer() {
+    const modal = document.getElementById('photo-viewer-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function openFullSizeImage(imagePath) {
+    // Create a full-screen image viewer
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 3000; display: flex; align-items: center; justify-content: center; cursor: pointer;';
+    overlay.onclick = function() {
+        document.body.removeChild(overlay);
+    };
+    
+    const img = document.createElement('img');
+    // Ensure the path starts with uploads/ if it doesn't already
+    const imageUrl = imagePath.startsWith('uploads/') ? `/${imagePath}` : `/uploads/${imagePath}`;
+    img.src = imageUrl;
+    img.style.cssText = 'max-width: 90%; max-height: 90%; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);';
+    img.onerror = function() {
+        console.error('Failed to load full-size image:', imageUrl);
+        this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="400"%3E%3Crect fill="%23ddd" width="400" height="400"/%3E%3Ctext fill="%23999" font-family="sans-serif" font-size="18" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage not found%3C/text%3E%3C/svg%3E';
+    };
+    
+    const closeBtn = document.createElement('div');
+    closeBtn.textContent = '×';
+    closeBtn.style.cssText = 'position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; font-weight: bold; cursor: pointer; z-index: 3001; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); border-radius: 50%; transition: all 0.3s;';
+    closeBtn.onmouseover = function() {
+        this.style.background = 'rgba(255,255,255,0.2)';
+        this.style.transform = 'scale(1.1)';
+    };
+    closeBtn.onmouseout = function() {
+        this.style.background = 'rgba(0,0,0,0.5)';
+        this.style.transform = 'scale(1)';
+    };
+    closeBtn.onclick = function(e) {
+        e.stopPropagation();
+        document.body.removeChild(overlay);
+    };
+    
+    overlay.appendChild(img);
+    overlay.appendChild(closeBtn);
+    document.body.appendChild(overlay);
+    
+    // Close on Escape key
+    const escapeHandler = function(e) {
+        if (e.key === 'Escape') {
+            document.body.removeChild(overlay);
+            document.removeEventListener('keydown', escapeHandler);
+        }
+    };
+    document.addEventListener('keydown', escapeHandler);
 }
 
 // Analytics Modal
@@ -1121,14 +1325,239 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
 });
 
 function exportReport() {
-    const format = prompt('Export format:\n1. Excel (xlsx)\n2. PDF\n\nEnter 1 or 2:', '1');
-    if (!format) return;
+    const modal = document.getElementById('export-modal');
+    if (modal) {
+        modal.style.display = 'block';
+        setupExportForm();
+    }
+}
+
+function closeExportModal() {
+    const modal = document.getElementById('export-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function setupExportForm() {
+    const form = document.getElementById('export-form');
+    const dateRangeInputs = form.querySelectorAll('input[name="date-range"]');
+    const customRangeDiv = document.getElementById('custom-date-range');
     
-    const date = prompt('Enter date (YYYY-MM-DD) or leave empty for today:', new Date().toISOString().split('T')[0]);
-    if (date === null) return;
+    // Show/hide custom date range based on selection
+    dateRangeInputs.forEach(input => {
+        input.addEventListener('change', function() {
+            if (this.value === 'custom') {
+                customRangeDiv.style.display = 'block';
+                document.getElementById('start-date').required = true;
+                document.getElementById('end-date').required = true;
+            } else {
+                customRangeDiv.style.display = 'none';
+                document.getElementById('start-date').required = false;
+                document.getElementById('end-date').required = false;
+            }
+        });
+    });
     
-    const formatType = format === '1' ? 'excel' : 'pdf';
-    const url = `/api/reports/daily?date=${date || new Date().toISOString().split('T')[0]}&format=${formatType}`;
+    // Handle form submission
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const dateRange = form.querySelector('input[name="date-range"]:checked').value;
+        const format = form.querySelector('input[name="format"]:checked').value;
+        const combineHours = document.getElementById('combine-hours').checked;
+        
+        let startDate, endDate;
+        const today = new Date();
+        
+        switch(dateRange) {
+            case 'today':
+                startDate = endDate = today.toISOString().split('T')[0];
+                break;
+            case 'week':
+                const weekStart = new Date(today);
+                weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+                startDate = weekStart.toISOString().split('T')[0];
+                endDate = today.toISOString().split('T')[0];
+                break;
+            case 'month':
+                startDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+                endDate = today.toISOString().split('T')[0];
+                break;
+            case 'custom':
+                startDate = document.getElementById('start-date').value;
+                endDate = document.getElementById('end-date').value;
+                if (!startDate || !endDate) {
+                    showMessage('export-message', 'Please select both start and end dates', 'error');
+                    return;
+                }
+                if (startDate > endDate) {
+                    showMessage('export-message', 'Start date must be before end date', 'error');
+                    return;
+                }
+                break;
+        }
+        
+        const messageDiv = document.getElementById('export-message');
+        messageDiv.textContent = 'Generating report...';
+        messageDiv.className = 'message';
+        messageDiv.style.display = 'block';
+        
+        const url = `/api/reports/export?start_date=${startDate}&end_date=${endDate}&format=${format}&combine_hours=${combineHours}`;
+        
+        // Download the file instead of opening in new tab
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error('Failed to generate report');
+            }
+            
+            // Get the blob from response
+            const blob = await response.blob();
+            
+            // Create download link
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            
+            // Get filename from Content-Disposition header or create default
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = `attendance_${startDate}_to_${endDate}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+            
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+                if (filenameMatch) {
+                    filename = filenameMatch[1];
+                }
+            }
+            
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            
+            // Cleanup
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(downloadUrl);
+            
+            messageDiv.textContent = 'Report downloaded successfully!';
+            messageDiv.className = 'message success';
+            setTimeout(() => {
+                closeExportModal();
+            }, 2000);
+        } catch (error) {
+            console.error('Error downloading report:', error);
+            messageDiv.textContent = 'Error downloading report. Please try again.';
+            messageDiv.className = 'message error';
+        }
+    });
+}
+
+// Archive Functions
+function openArchiveModal() {
+    const modal = document.getElementById('archive-modal');
+    if (modal) {
+        modal.style.display = 'block';
+        loadArchivedRecords();
+    }
+}
+
+function closeArchiveModal() {
+    const modal = document.getElementById('archive-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function loadArchivedRecords() {
+    const loading = document.getElementById('archive-loading');
+    const container = document.getElementById('archive-list-container');
+    const tbody = document.getElementById('archive-body');
     
-    window.open(url, '_blank');
+    if (!loading || !container || !tbody) return;
+    
+    loading.style.display = 'block';
+    container.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/attendance/archive');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const records = await response.json();
+        
+        loading.style.display = 'none';
+        container.style.display = 'block';
+        
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #666;">No archived records</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = records.map(record => {
+            const duration = record.duration || 'N/A';
+            const isLate = record.is_late ? 1 : 0;
+            const durationBadge = isLate ? 
+                `<span class="duration-badge late-badge">${duration} (Late)</span>` : 
+                `<span class="duration-badge">${duration}</span>`;
+            
+            return `
+                <tr>
+                    <td>${record.id}</td>
+                    <td><strong>${record.name}</strong></td>
+                    <td><code style="background: #f0f0f0; padding: 4px 8px; border-radius: 4px;">${record.usn || 'N/A'}</code></td>
+                    <td>${record.entry}</td>
+                    <td>${record.exit}</td>
+                    <td>${durationBadge}</td>
+                    <td>✅ Completed</td>
+                    <td>
+                        <button onclick="unarchiveRecord(${record.id})" class="unarchive-btn" title="Unarchive this record">📤</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading archived records:', error);
+        loading.textContent = 'Error loading archived records';
+    }
+}
+
+async function archiveRecord(recordId) {
+    if (!confirm('Are you sure you want to archive this record?')) return;
+    
+    try {
+        const response = await fetch(`/api/attendance/${recordId}/archive`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('Record archived successfully');
+            loadOngoingAttendance();
+            loadCompletedAttendance();
+        } else {
+            alert(data.error || 'Error archiving record');
+        }
+    } catch (error) {
+        console.error('Error archiving record:', error);
+        alert('Error connecting to server');
+    }
+}
+
+async function unarchiveRecord(recordId) {
+    if (!confirm('Are you sure you want to unarchive this record?')) return;
+    
+    try {
+        const response = await fetch(`/api/attendance/${recordId}/unarchive`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('Record unarchived successfully');
+            loadArchivedRecords();
+            loadOngoingAttendance();
+            loadCompletedAttendance();
+        } else {
+            alert(data.error || 'Error unarchiving record');
+        }
+    } catch (error) {
+        console.error('Error unarchiving record:', error);
+        alert('Error connecting to server');
+    }
 }

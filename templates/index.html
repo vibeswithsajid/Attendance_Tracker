@@ -38,10 +38,8 @@
                     <button class="action-btn" id="analytics-btn" onclick="openAnalyticsModal()">📊 Analytics</button>
                     <button class="action-btn" id="settings-btn" onclick="openSettingsModal()">⚙️ Settings</button>
                     <button class="action-btn" id="camera-setup-btn" onclick="openCameraModal()">📷 Camera Setup</button>
-                    <button class="action-btn" id="refresh-btn" onclick="loadAttendance(true)">🔄 Refresh</button>
+                    <button class="action-btn" id="archive-btn" onclick="openArchiveModal()">🗄️ Archive</button>
                     <button class="action-btn" id="export-btn" onclick="exportReport()">📥 Export</button>
-                    <a href="/student/register" class="action-btn" style="text-decoration: none; display: inline-block;">👤 Student Register</a>
-                    <a href="/student/login" class="action-btn" style="text-decoration: none; display: inline-block;">👤 Student Login</a>
                     <button class="action-btn logout-btn" id="logout-btn" onclick="logout()">🚪 Logout</button>
                 </div>
             </div>
@@ -77,11 +75,12 @@
                                     <th>Entry Time</th>
                                     <th>Duration</th>
                                     <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="ongoing-body">
                                 <tr>
-                                    <td colspan="5" style="text-align: center; padding: 20px; color: #666;">Loading...</td>
+                                    <td colspan="6" style="text-align: center; padding: 20px; color: #666;">Loading...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -103,11 +102,12 @@
                                 <th>Exit Time</th>
                                 <th>Duration</th>
                                 <th>Status</th>
+                                    <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="completed-body">
                             <tr>
-                                <td colspan="7" style="text-align: center; padding: 20px; color: #666;">Loading...</td>
+                                    <td colspan="8" style="text-align: center; padding: 20px; color: #666;">Loading...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -233,6 +233,16 @@
         </div>
     </div>
 
+    <!-- Photo Viewer Modal -->
+    <div id="photo-viewer-modal" class="modal">
+        <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+            <span class="close" onclick="closePhotoViewer()">&times;</span>
+            <h2 id="photo-viewer-title">Student Photos</h2>
+            <div id="photo-viewer-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
+            </div>
+        </div>
+    </div>
+
     <!-- Analytics Modal -->
     <div id="analytics-modal" class="modal">
         <div class="modal-content" style="max-width: 900px;">
@@ -295,6 +305,130 @@
                 <button type="submit" class="submit-btn">💾 Save Settings</button>
             </form>
             <div id="settings-message" class="message"></div>
+        </div>
+    </div>
+
+    <!-- Export Modal -->
+    <div id="export-modal" class="modal">
+        <div class="modal-content" style="max-width: 650px;">
+            <span class="close" onclick="closeExportModal()">&times;</span>
+            <h2>📥 Export Attendance Report</h2>
+            <form id="export-form">
+                <div class="form-group">
+                    <label style="font-weight: 600; margin-bottom: 12px; display: block; color: #1a1a1a;">Date Range:</label>
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input type="radio" name="date-range" value="today" checked>
+                            <span class="radio-label">
+                                <span class="radio-title">Today</span>
+                                <span class="radio-subtitle">Current date only</span>
+                            </span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="date-range" value="week">
+                            <span class="radio-label">
+                                <span class="radio-title">This Week</span>
+                                <span class="radio-subtitle">Sunday to today</span>
+                            </span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="date-range" value="month">
+                            <span class="radio-label">
+                                <span class="radio-title">This Month</span>
+                                <span class="radio-subtitle">First day to today</span>
+                            </span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="date-range" value="custom">
+                            <span class="radio-label">
+                                <span class="radio-title">Custom Range</span>
+                                <span class="radio-subtitle">Select specific dates</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div id="custom-date-range" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                    <div class="form-group" style="margin-bottom: 15px;">
+                        <label for="start-date" style="font-weight: 500;">Start Date:</label>
+                        <input type="date" id="start-date" name="start_date" required style="margin-top: 5px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="end-date" style="font-weight: 500;">End Date:</label>
+                        <input type="date" id="end-date" name="end_date" required style="margin-top: 5px;">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-weight: 600; margin-bottom: 12px; display: block; color: #1a1a1a;">Export Format:</label>
+                    <div class="radio-group-horizontal">
+                        <label class="radio-option-horizontal">
+                            <input type="radio" name="format" value="excel" checked>
+                            <span class="radio-label-horizontal">
+                                <span style="font-size: 1.2em; margin-right: 8px;">📊</span>
+                                <span>Excel (.xlsx)</span>
+                            </span>
+                        </label>
+                        <label class="radio-option-horizontal">
+                            <input type="radio" name="format" value="pdf">
+                            <span class="radio-label-horizontal">
+                                <span style="font-size: 1.2em; margin-right: 8px;">📄</span>
+                                <span>PDF</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="form-group" style="padding: 15px; background: #f0f9ff; border-radius: 8px; border: 1px solid #b0d4e0;">
+                    <label class="checkbox-option">
+                        <input type="checkbox" id="combine-hours" checked>
+                        <span class="checkbox-label">
+                            <span class="checkbox-title">Combine entries within same hour</span>
+                            <span class="checkbox-subtitle">Recommended for 50-minute classes. Multiple entry/exit records within the same hour will be combined into one record with first entry and last exit time.</span>
+                        </span>
+                    </label>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 25px;">
+                    <button type="button" onclick="closeExportModal()" class="cancel-btn" style="flex: 1; padding: 12px; background: #f0f0f0; color: #333; border: 1px solid #d0d0d0; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.3s;">
+                        Cancel
+                    </button>
+                    <button type="submit" class="submit-btn" style="flex: 2; padding: 12px; font-size: 14px;">
+                        📥 Export Report
+                    </button>
+                </div>
+            </form>
+            <div id="export-message" class="message"></div>
+        </div>
+    </div>
+
+    <!-- Archive Modal -->
+    <div id="archive-modal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <span class="close" onclick="closeArchiveModal()">&times;</span>
+            <h2>🗄️ Archived Attendance Records</h2>
+            <div id="archive-loading" style="text-align: center; padding: 20px;">Loading archived records...</div>
+            <div id="archive-list-container" style="display: none;">
+                <div class="table-container">
+                    <table id="archive-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>USN</th>
+                                <th>Entry Time</th>
+                                <th>Exit Time</th>
+                                <th>Duration</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="archive-body">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="archive-message" class="message"></div>
+            </div>
         </div>
     </div>
 
